@@ -2,23 +2,23 @@ import sys, os
 import trimesh
 import numpy as np
 
-g_dataset_dir = "psbCup/test"
+g_dataset_dir = "cosegCup/test2"
+g_export_per_face_labels = False
 
-def parse_per_label_labels(label_path, face_num):
-    label_id = 0
-    label_arr = np.full(face_num, -1, dtype=np.int32)
-
-    print(">>>>>>", label_path, face_num, label_arr.shape)
+def parse_per_label_labels(label_path):
+    categories = []
     with open(label_path, 'r') as f:
         for i, line in enumerate(f):
-            if i % 2 == 0:
-                # Note that label id should start from 1
-                label_id += 1
-            else:
-                faces = [int(vert) - 1 for vert in line.split()]
-                print(">>>>>>", i, label_arr.shape)
-                label_arr[faces] = label_id
-                print(">>>>>>", i, label_arr.shape)
+            if i % 2 != 0:
+                faces = np.array([int(vert) for vert in line.split()])
+                categories.append(faces)
+
+    face_num = max([np.max(cls) for cls in categories])
+    label_arr = np.full(face_num, -1, dtype=np.int32)
+    for label_id, faces in enumerate(categories):
+        # Note that face number starts from 1
+        # Note that label id starts from 1
+        label_arr[faces - 1] = label_id + 1
 
     # Check labels, if there are vertices not initialized
     abnormals = label_arr[label_arr==-1]
@@ -59,26 +59,28 @@ if __name__ == "__main__":
         mesh = trimesh.load(mesh_path)
 
         # Read face labels
-        old_label_name = base_name + '_labelsN.txt'
         new_label_name = base_name + '_labelsV.txt'
-
-        old_label_path = os.path.join(g_dataset_dir, old_label_name)
         new_label_path = os.path.join(g_dataset_dir, new_label_name)
 
-        if os.path.exists(old_label_path):
-            labels = parse_per_face_labels(old_label_path)
-        else:
-            old_label_name = base_name + '_labels.txt'
+        label_loaders = {'_labelsN.txt': parse_per_face_labels
+            , '_labels.txt': parse_per_label_labels
+            , '.seg': parse_per_face_labels
+        }
+        labels = None
+        for suffix, loader in label_loaders.items():
+            old_label_name = base_name + suffix
             old_label_path = os.path.join(g_dataset_dir, old_label_name)
-            if not os.path.exists(old_label_path):
-                print("Failed to convert labels for mesh: %s" % base_name)
-                continue
+            if os.path.exists(old_label_path):
+                labels = loader(old_label_path)
+                if g_export_per_face_labels and suffix == '_labels.txt':
+                    tmp_label_path = os.path.join(g_dataset_dir, base_name + '_labelsN.txt')
+                    vs = [str(i)+'\n' for i in labels]
+                    with open(tmp_label_path, 'w') as f:
+                        f.writelines(vs)
 
-            labels = parse_per_label_labels(old_label_path, mesh.faces.shape[0])
-            tmp_label_path = os.path.join(g_dataset_dir, base_name + '_labelsN.txt')
-            vs = [str(i)+'\n' for i in labels]
-            with open(tmp_label_path, 'w') as f:
-                f.writelines(vs)
+        if labels is None:
+            print("Failed to convert labels for mesh: %s" % base_name)
+            continue
 
         # Map face correspondences to label correspondences
         vfunc = np.vectorize(lambda i: labels[i] if i >= 0 else i)

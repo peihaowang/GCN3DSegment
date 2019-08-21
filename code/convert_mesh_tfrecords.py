@@ -3,8 +3,8 @@ import trimesh
 import numpy as np
 import tensorflow as tf
 
-g_dataset_dir = "psbCup/test"
-g_output_path = "psbCup.test.tfrecords"
+g_dataset_dir = "cosegCup/test2"
+g_output_path = "cosegCup.test2.tfrecords"
 
 # The following functions can be used to convert a value to a type compatible
 # with tf.Example.
