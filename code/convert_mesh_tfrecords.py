@@ -3,8 +3,9 @@ import trimesh
 import numpy as np
 import tensorflow as tf
 
-g_dataset_dir = "cosegCup/test2"
-g_output_path = "cosegCup.test2.tfrecords"
+g_dataset_dir = "smallDome"
+# g_dataset_dir = "/Volumes/ClothesData/20190401_Data_Clothing/20190806_labeled_clothing/Static"
+g_output_path = "domecloth.tfrecords"
 
 # The following functions can be used to convert a value to a type compatible
 # with tf.Example.
@@ -46,7 +47,14 @@ def serialize_mesh(writer, mesh_path, label_path):
         return False
 
     # Read mesh via trimesh
+
+    # Disable error output
+    sys.stderr = None
     mesh = trimesh.load(mesh_path)
+    sys.stderr = sys.__stderr__
+
+    if not isinstance(mesh, trimesh.Trimesh):
+        return False
 
     # Read labels line by line
     with open(label_path, 'r') as f:
@@ -67,27 +75,28 @@ if __name__ == "__main__":
     # Supported mesh format
     mesh_exts = [".obj", ".off", ".ply"]
 
-    # Enumerate files
-    files = os.listdir(g_dataset_dir)
-
     # Aggregate each mesh and its label, then serialize to file
     with tf.io.TFRecordWriter(g_output_path) as writer:
-        for filename in files:
-            base_name, ext_name = os.path.splitext(filename)
+        for dir_name in os.listdir(g_dataset_dir):
+            dir_path = os.path.join(g_dataset_dir, dir_name)
+            if not os.path.isdir(dir_path): continue
 
-            if ext_name not in mesh_exts:
-                continue
+            for filename in os.listdir(dir_path):
+                _, ext_name = os.path.splitext(filename)
 
-            label_name = base_name + '_labelsV.txt'
+                if ext_name.lower() not in mesh_exts:
+                    continue
 
-            mesh_path = os.path.join(g_dataset_dir, filename)
-            label_path = os.path.join(g_dataset_dir, label_name)
+                label_name = dir_name + '_labelsV.txt'
 
-            # Write to tfrecord file
-            if serialize_mesh(writer, mesh_path, label_path):
-                print("Successfully serialize mesh: %s" % base_name)
-            else:
-                print("Failed to serialize mesh: %s" % base_name)
+                mesh_path = os.path.join(dir_path, filename)
+                label_path = os.path.join(dir_path, label_name)
+
+                # Write to tfrecord file
+                if serialize_mesh(writer, mesh_path, label_path):
+                    print("Successfully serialize mesh: %s" % dir_name)
+                else:
+                    print("Failed to serialize mesh: %s" % dir_name)
 
 
 

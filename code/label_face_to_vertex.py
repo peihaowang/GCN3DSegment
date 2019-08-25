@@ -2,7 +2,7 @@ import sys, os
 import trimesh
 import numpy as np
 
-g_dataset_dir = "cosegCup/test2"
+g_dataset_dir = "cosegCup/test"
 g_export_per_face_labels = False
 
 def parse_per_label_labels(label_path):
@@ -46,7 +46,7 @@ if __name__ == "__main__":
     for filename in files:
         base_name, ext_name = os.path.splitext(filename)
 
-        if ext_name not in mesh_exts:
+        if ext_name.lower() not in mesh_exts:
             continue
 
         mesh_path = os.path.join(g_dataset_dir, filename)
@@ -83,21 +83,20 @@ if __name__ == "__main__":
             continue
 
         # Map face correspondences to label correspondences
-        vfunc = np.vectorize(lambda i: labels[i] if i >= 0 else i)
-        m = vfunc(mesh.vertex_faces)
+        vfunc = np.frompyfunc(lambda i: labels[i] if i >= 0 else i, 1, 1)
+        m = vfunc(mesh.vertex_faces).astype(np.int64)
 
         # Find the mode to represent the final label of each vertex
         # 1. Filter out paddings
         w = (m>=0)
         m = [m[i][w[i]] for i in range(m.shape[0])]
         # 2. Find the mode
-        [np.max(np.bincount(m[i])) for i in range(len(m))]
         m = [np.argmax(np.bincount(m[i])) for i in range(len(m))]
 
         # Serialize to string
-        m = [str(i)+'\n' for i in m]
+        lines = [str(i)+'\n' for i in m]
         with open(new_label_path, 'w') as f:
-            f.writelines(m)
+            f.writelines(lines)
 
         print("Successfully convert labels for mesh: %s" % base_name)
 
