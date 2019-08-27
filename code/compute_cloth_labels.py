@@ -5,7 +5,7 @@ import numpy as np
 
 g_dataset_dir = "smallDome"
 # g_dataset_dir = "/Volumes/ClothesData/20190401_Data_Clothing/20190806_labeled_clothing/Static"
-g_log_filename = "compute_cloth_labels2.log"
+g_log_filename = "compute_cloth_labels.log"
 g_override_mode = True
 
 def write_log(lines, output=False):
@@ -72,20 +72,22 @@ if __name__ == "__main__":
                 print("Avoid double computing labels, skip %s" % dir_name)
                 continue
 
-        print("Computer labels for mesh %s" % dir_name)
+        print("Computing labels for mesh %s" % dir_name)
 
         origin_mesh = read_mesh_from_dir(parent_dir)
         if origin_mesh is None:
-            write_log("Cannot find the origin mesh %s" % dir_name, True)
+            print("Cannot find the origin mesh %s" % dir_name, True)
             continue
 
         # Maximum distance
-        epsilon = 0.01
+        epsilon = 1e-8
         # Maximum outliers
-        max_outliers = 50
+        max_outliers_proportion = 0.25
 
         # Build up kdtree to search nearest neighbor
         tree = scipy.spatial.cKDTree(origin_mesh.vertices)
+        # Calculate the sparse matrix to match the duplicated vertices
+        coo = tree.sparse_distance_matrix(tree, epsilon, output_type="coo_matrix")
 
         labels = np.full(origin_mesh.vertices.shape[0], label_map['skin'], dtype=np.int32)
         components = ['top', 'bottom', 'shoes']
@@ -101,15 +103,22 @@ if __name__ == "__main__":
             # Calculate the distances between each vertex
             min_dists, idx = tree.query(component_mesh.vertices)
 
-            # Give warning if the minimum distance is to large
+            # Give warning if the minimum gap is too large
             rought_idx = idx[min_dists > epsilon]
-            rought_dists = min_dists[min_dists > epsilon]
-            if 0 < rought_idx.size and rought_idx.size <= max_outliers:
-                print("Warning: Cannot find the accurate correspondence for the following vertices, take the nearest vertex alternatively:")
-                print(" ".join(["(%d, %0.2f)" % (i, d) for i, d in zip(rought_idx, rought_dists)]))
-            elif rought_idx.size > max_outliers:
-                write_log("Fatal: Too many outliers(%d), cannot match two mesh: %s -> %s" % (rought_idx.size, component, dir_name), True)
+            outliers_proportion = rought_idx.size / component_mesh.vertices.shape[0]
+            # rought_dists = min_dists[min_dists > max_epsilon]
+            if 0 < outliers_proportion and outliers_proportion <= max_outliers_proportion:
+                print("Warning: Cannot find the accurate correspondence for %d vertices, take the nearest vertex alternatively." % rought_idx.size)
+                # write_log("Warning: Cannot find the accurate correspondence for the following vertices, take the nearest vertex alternatively:")
+                # write_log(" ".join(["(%d, %0.2f)" % (i, d) for i, d in zip(rought_idx, rought_dists)]))
+            elif outliers_proportion > max_outliers_proportion:
+                print("Fatal: Too many outliers(%d, %f), cannot match two mesh: %s -> %s" % (rought_idx.size, outliers_proportion, component, dir_name))
 
+            # Fill in the indices of duplicated vertices
+            idx = np.concatenate([np.array(coo.col[coo.row == v]) for v in idx])
+            idx = np.unique(idx)
+
+            # Add labels
             labels[idx] = label_map[component]
     
             print("Successfully labeled %d vertices for %s/%s" % (idx.shape[0], dir_name, component))
