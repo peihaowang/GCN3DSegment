@@ -136,18 +136,26 @@ if __name__ == "__main__":
                     # Calculate the cam position
                     rad = np.radians(angle)
                     cam_pos = aabb_center
-                    # Apply elliptical boundary
+                    # Assume elliptical boundary
                     offset = np.square(
                         ((aabb_size[0]/2)*np.sin(rad)) ** 2
                         + ((aabb_size[2]/2)*np.cos(rad)) ** 2
                     )
-                    cam_pos[2] += (aabb_size[1]/2) / np.tan(cam.yfov/2) + offset
+                    # Calculate z coordinate
+                    height = np.max([aabb_size[1], aabb_size[0]*(g_image_size[1]/g_image_size[0])])
+                    margin = 0.1
+                    height += margin*2
+                    cam_pos[2] += (height/2) / np.tan(cam.yfov/2) + offset
 
-                    rot_mat = rotation_matrix(rad, [0, 1, 0])
-                    tr_mat = translation_matrix(cam_pos)
-                    mat = np.dot(tr_mat, rot_mat)
+                    # Calculate transform matrix
+                    mesh_tr_mat = translation_matrix(aabb_center)
+                    mesh_rot_mat = rotation_matrix(rad, [0, 1, 0])
+                    mesh_trs_mat = np.dot(mesh_tr_mat, mesh_rot_mat)
 
-                    for node in track_with_cam: node.matrix = mat
+                    cam_tr_mat = translation_matrix(cam_pos)
+
+                    for node in track_with_cam: node.matrix = cam_tr_mat
+                    for node in mesh_nodes: node.matrix = mesh_trs_mat
 
                     # Render scene to image
                     color, _ = r.render(scene)
@@ -156,8 +164,8 @@ if __name__ == "__main__":
                     else:
                         if row_mat.shape[0] != color.shape[0]: print("Fatal: Inconsistent cell size")
                         row_mat = np.hstack((row_mat, color))
-                image_path = os.path.join(parent_dir, filename+'_'+','.join(components)+'_vis.png')
-                cv2.imwrite(image_path, row_mat)
+                # image_path = os.path.join(parent_dir, filename+'_'+','.join(components)+'_vis.png')
+                # cv2.imwrite(image_path, row_mat)
 
                 for node in mesh_nodes: scene.remove_node(node)
 
