@@ -52,8 +52,8 @@ if __name__ == "__main__":
 
     vis_list = {
         'origin': ['model']
-        , 'clothes': ['top', 'bottom', 'shoes', 'top;bottom;shoes', 'model;top;bottom;shoes']
-        , 'naked': ['naked', 'top;bottom;shoes;naked']
+        , 'clothes': ['top', 'bottom', 'shoes', ['top', 'bottom', 'shoes'], ['model', 'top', 'bottom', 'shoes']]
+        , 'naked': ['naked', ['top', 'bottom', 'shoes', 'naked']]
     }
 
     view_angles = [0, 90, 180, 270]
@@ -101,6 +101,7 @@ if __name__ == "__main__":
             meshes[component] = component_mesh
 
         if len(meshes) == 0:
+            print("Fatal: No mesh available")
             continue
 
         # Rendering offscreen from that camera
@@ -110,60 +111,60 @@ if __name__ == "__main__":
         for filename, component_list in vis_list.items():
             image_mat = None
             for components in component_list:
-                components = components.split(';')
+                if isinstance(components, str): components = [components]
+
                 visible_meshes = [meshes[component] for component in components if component in meshes]
                 mesh_nodes = [scene.add(Mesh.from_trimesh(mesh)) for mesh in visible_meshes]
 
                 # Calculate the AABB box for the combined meshes
                 max_coords = min_coords = None
                 for mesh in visible_meshes:
-                    if max_coords is None: max_coords = np.max(mesh.vertices, axis=0)
+                    if max_coords is None: max_coords = np.max(mesh.vertices, axis=0).reshape((1, -1))
                     else: max_coords = np.vstack((max_coords, np.max(mesh.vertices, axis=0)))
 
-                    if min_coords is None: min_coords = np.min(mesh.vertices, axis=0)
+                    if min_coords is None: min_coords = np.min(mesh.vertices, axis=0).reshape((1, -1))
                     else: min_coords = np.vstack((min_coords, np.min(mesh.vertices, axis=0)))
 
-                if max_coords.ndim >= 2:
-                    aabb_center = (np.max(max_coords, axis=0) + np.min(min_coords, axis=0)) / 2
-                    aabb_size = np.max(max_coords, axis=0) - np.min(min_coords, axis=0)
-                else:
-                    aabb_center = (max_coords + min_coords) / 2
-                    aabb_size = max_coords - min_coords
+                aabb_center = (np.max(max_coords, axis=0) + np.min(min_coords, axis=0)) / 2
+                aabb_size = np.max(max_coords, axis=0) - np.min(min_coords, axis=0)
 
                 # Concat each angle to form a row
                 row_mat = None
                 for angle in view_angles:
                     # Calculate the cam position
-                    rad = np.radians(angle)
+                    rad = math.radians(angle)
                     cam_pos = aabb_center
                     # Assume elliptical boundary
-                    offset = np.square(
+                    offset = math.square(
                         ((aabb_size[0]/2)*np.sin(rad)) ** 2
                         + ((aabb_size[2]/2)*np.cos(rad)) ** 2
                     )
                     # Calculate z coordinate
-                    height = np.max([aabb_size[1], aabb_size[0]*(g_image_size[1]/g_image_size[0])])
+                    ratio = g_single_viewport_size[1] / g_single_viewport_size[0]
+                    height = max(aabb_size[1], aabb_size[0]*ratio)
                     margin = 0.1
                     height += margin*2
-                    cam_pos[2] += (height/2) / np.tan(cam.yfov/2) + offset
+                    cam_pos[2] += (height/2) / math.tan(cam.yfov/2) + offset
 
                     # Calculate transform matrix
-                    mesh_tr_mat = translation_matrix(aabb_center)
-                    mesh_rot_mat = rotation_matrix(rad, [0, 1, 0])
-                    mesh_trs_mat = np.dot(mesh_tr_mat, mesh_rot_mat)
+                    mesh_mat = translation_matrix(aabb_center)
+                    mesh_mat = np.dot(rotation_matrix(rad, [0, 1, 0]), mesh_mat)
 
-                    cam_tr_mat = translation_matrix(cam_pos)
+                    cam_mat = translation_matrix(cam_pos)
 
-                    for node in track_with_cam: node.matrix = cam_tr_mat
-                    for node in mesh_nodes: node.matrix = mesh_trs_mat
+                    for node in track_with_cam: node.matrix = cam_mat
+                    for node in mesh_nodes: node.matrix = mesh_mat
 
                     # Render scene to image
                     color, _ = r.render(scene)
+                    assert(color.shape == g_single_viewport_size, "Fatal: Inconsistent color map size")
+
                     if row_mat is None:
                         row_mat = color
                     else:
-                        if row_mat.shape[0] != color.shape[0]: print("Fatal: Inconsistent cell size")
+                        assert(row_mat.shape[0] == color.shape[0], "Fatal: Inconsistent cell size")
                         row_mat = np.hstack((row_mat, color))
+
                 # image_path = os.path.join(parent_dir, filename+'_'+','.join(components)+'_vis.png')
                 # cv2.imwrite(image_path, row_mat)
 
@@ -172,11 +173,11 @@ if __name__ == "__main__":
                 if image_mat is None:
                     image_mat = row_mat
                 else:
-                    if image_mat.shape[1] != row_mat.shape[1]: print("Fatal: Inconsistent row size")
+                    assert(image_mat.shape[1] == row_mat.shape[1], "Fatal: Inconsistent row size")
                     image_mat = np.vstack((image_mat, row_mat))
 
             # Save image
-            image_path = os.path.join(parent_dir, filename+'_vis.png')
+            image_path = os.path.join(parent_dir, filename + '_vis.png')
             cv2.imwrite(image_path, image_mat)
 
     r.delete()
