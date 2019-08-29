@@ -14,17 +14,40 @@ from pyrender import PerspectiveCamera,\
                      RenderFlags
 
 pyglet.options['shadow_window'] = False
-# To suppress the warning that the loaded image exceeds the size limit
+# To suppress the warning that the loading image exceeds the size limit
 PIL.Image.MAX_IMAGE_PIXELS = 933120000
 
 # g_dataset_dir = "/Volumes/ClothesData/20190401_Data_Clothing/20190806_labeled_clothing/Static"
-g_dataset_dir = "testDome"
+g_dataset_dir = "F:/20190401_Data_Clothing/20190806_labeled_clothing/Static"
+# g_dataset_dir = "testDome"
 g_single_viewport_size = (640*2, 480*2)
+g_log_filename = "render_mesh_to_image.log"
 
-def apply_transform(origin, transfrom):
-    return np.dot(transfrom, origin)
+def write_log(message, verbose=True):
+    if g_log_filename:
+        # Open log file
+        with open(g_log_filename, 'a') as f:
+            print(message, file=f)
+    if verbose:
+        print(message)
 
-def read_mesh_from_dir(dir_path):
+class DummyResolver(trimesh.visual.resolvers.FilePathResolver):
+    def __init__(self, source):
+        super(DummyResolver, self).__init__(source)
+
+    def get(self, name):
+        # Supported mesh format
+        image_exts = [".png", ".jpg", ".jpeg", ".bmp"]
+
+        _, ext_name = os.path.splitext(name)
+        if ext_name.lower() in image_exts:
+            fake_texture = np.zeros((10, 10), dtype=np.uint8)
+            _, data = cv2.imencode('.png', fake_texture)
+            return data.tobytes()
+        else:
+            return super(DummyResolver, self).get(name)
+
+def read_mesh_from_dir(dir_path, load_texture=True):
     # Supported mesh format
     mesh_exts = [".obj", ".off", ".ply"]
 
@@ -38,8 +61,9 @@ def read_mesh_from_dir(dir_path):
             mesh_path = os.path.join(dir_path, filename)
 
             try:
+                resolver = None if load_texture else DummyResolver(dir_path)
                 # sys.stderr = None
-                mesh = trimesh.load(mesh_path)
+                mesh = trimesh.load(mesh_path, resolver=resolver)
                 # sys.stderr = sys.__stderr__
 
                 if not isinstance(mesh, trimesh.Trimesh):
@@ -52,27 +76,28 @@ def read_mesh_from_dir(dir_path):
     return mesh
 
 def extract_material(mesh):
-    trimesh_mat = mesh.visual.material
     pyrender_mat = None
-    if isinstance(trimesh_mat, trimesh.visual.texture.PBRMaterial):
-        pyrender_mat = MetallicRoughnessMaterial(
-            normalTexture=trimesh_mat.normalTexture,
-            occlusionTexture=trimesh_mat.occlusionTexture,
-            emissiveTexture=trimesh_mat.emissiveTexture,
-            emissiveFactor=trimesh_mat.emissiveFactor,
-            alphaMode='BLEND',
-            baseColorFactor=trimesh_mat.baseColorFactor,
-            baseColorTexture=trimesh_mat.baseColorTexture,
-            metallicFactor=trimesh_mat.metallicFactor,
-            metallicRoughnessTexture=trimesh_mat.metallicRoughnessTexture,
-            doubleSided=trimesh_mat.doubleSided,
-            alphaCutoff=trimesh_mat.alphaCutoff
-        )
-    elif isinstance(trimesh_mat, trimesh.visual.texture.SimpleMaterial):
-        pyrender_mat = MetallicRoughnessMaterial(
-            alphaMode='BLEND',
-            baseColorTexture=trimesh_mat.image
-        )
+    if mesh.visual.kind == 'texture':
+        trimesh_mat = mesh.visual.material
+        if isinstance(trimesh_mat, trimesh.visual.texture.PBRMaterial):
+            pyrender_mat = MetallicRoughnessMaterial(
+                normalTexture=trimesh_mat.normalTexture,
+                occlusionTexture=trimesh_mat.occlusionTexture,
+                emissiveTexture=trimesh_mat.emissiveTexture,
+                emissiveFactor=trimesh_mat.emissiveFactor,
+                alphaMode='BLEND',
+                baseColorFactor=trimesh_mat.baseColorFactor,
+                baseColorTexture=trimesh_mat.baseColorTexture,
+                metallicFactor=trimesh_mat.metallicFactor,
+                metallicRoughnessTexture=trimesh_mat.metallicRoughnessTexture,
+                doubleSided=trimesh_mat.doubleSided,
+                alphaCutoff=trimesh_mat.alphaCutoff
+            )
+        elif isinstance(trimesh_mat, trimesh.visual.texture.SimpleMaterial):
+            pyrender_mat = MetallicRoughnessMaterial(
+                alphaMode='BLEND',
+                baseColorTexture=trimesh_mat.image
+            )
     return pyrender_mat
 
 if __name__ == "__main__":
@@ -102,7 +127,6 @@ if __name__ == "__main__":
     # spot_l_node = scene.add(spot_l, parent_node=cam_node)
     point_l_node = scene.add(point_l, parent_node=cam_node)
 
-
     r = OffscreenRenderer(viewport_width=g_single_viewport_size[0], viewport_height=g_single_viewport_size[1])
 
     for dir_name in os.listdir(g_dataset_dir):
@@ -110,22 +134,22 @@ if __name__ == "__main__":
 
         if not os.path.isdir(parent_dir): continue
 
-        print("Visualizing human model: %s" % dir_name)
+        write_log("Visualizing human model: %s" % dir_name)
 
         meshes = {}
 
         # Read origin mesh first
-        print("Loading origin mesh ...")
-        origin_mesh = read_mesh_from_dir(parent_dir)
+        write_log("Loading origin mesh ...")
+        origin_mesh = read_mesh_from_dir(parent_dir, load_texture=True)
         if origin_mesh is None:
-            print("Fatal: No origin mesh!")
+            write_log("Fatal: No origin mesh!")
             continue
 
         # Extract common material
-        print("Extracting common material ...")
+        write_log("Extracting common material ...")
         common_material = extract_material(origin_mesh)
         if common_material is None:
-            print("Fatal: Invalid material extracted")
+            write_log("Fatal: Invalid material extracted")
             continue
 
         # Convert origin mesh to pyrender mesh
@@ -135,11 +159,11 @@ if __name__ == "__main__":
 
         all_components = ['top', 'bottom', 'shoes', 'naked']
         for component in all_components:
-            print("Loading component %s mesh ..." % component)
+            write_log("Loading component %s mesh ..." % component)
             component_dir = os.path.join(parent_dir, component)
-            component_mesh = read_mesh_from_dir(component_dir)
+            component_mesh = read_mesh_from_dir(component_dir, load_texture=False)
             if component_mesh is None:
-                print("No component %s mesh" % component)
+                write_log("No component %s mesh" % component)
                 continue
 
             # Convert to pyrender mesh
@@ -150,22 +174,22 @@ if __name__ == "__main__":
             del component_mesh
 
         if len(meshes) <= 1:
-            print("Warning: Only origin mesh available")
+            write_log("Warning: Only origin mesh available")
             continue
 
         for filename, component_list in vis_list.items():
 
-            print("Start rendering image: %s" % filename)
+            write_log("Start rendering image: %s" % filename)
 
             image_mat = None
             for components in component_list:
                 if isinstance(components, str): components = [components]
 
-                print("Rendering row: %s" % ','.join(components))
+                write_log("Rendering row: %s" % ','.join(components))
 
                 visible_meshes = [meshes[component] for component in components if component in meshes]
                 if len(visible_meshes) == 0:
-                    print("Warning: No components available while rendering the current row.")
+                    write_log("Warning: No components available while rendering the current row.")
                     continue
 
                 # Add mesh into scenes
@@ -192,24 +216,29 @@ if __name__ == "__main__":
                 # Calculate the cam position
                 cam_pos = aabb_center.copy()
 
-                # 1. Distance
-                ratio = g_single_viewport_size[1] / g_single_viewport_size[0]
-                margin = 0.0
-                height = max(aabb_size[1], aabb_size[0]*ratio) + margin*2
-                dist = (height/2) / math.tan(cam.yfov/2)
-                cam_pos[2] += dist
-
-                # 2. Offset
                 max_offset = float('-inf')
                 for angle in view_angles:
                     rad = math.radians(angle)
+
+                    # 1. Distance
+                    ratio = g_single_viewport_size[1] / g_single_viewport_size[0]
+                    margin = 0.0
+                    width = math.sqrt(
+                        ((aabb_size[0]/2)*math.sin(rad+math.pi/2)) ** 2
+                        + ((aabb_size[2]/2)*math.cos(rad+math.pi/2)) ** 2
+                    ) * 2
+                    height = max(aabb_size[1], width * ratio) + margin * 2
+                    dist = (height / 2) / math.tan(cam.yfov / 2)
+
+                    # 2. Offset
                     # Assume elliptical boundary
                     offset = math.sqrt(
                         ((aabb_size[0]/2)*math.sin(rad)) ** 2
                         + ((aabb_size[2]/2)*math.cos(rad)) ** 2
                     )
-                    max_offset = max(max_offset, offset)
-                cam_pos[2] += offset
+
+                    max_offset = max(max_offset, dist+offset)
+                cam_pos[2] += max_offset
 
                 # 3. Transform
                 cam_mat = translation_matrix(cam_pos)
@@ -218,7 +247,7 @@ if __name__ == "__main__":
                 # Concat each angle to form a row
                 row_mat = None
                 for angle in view_angles:
-                    print("Rendering the angle of view: %d in degree" % angle)
+                    write_log("Rendering the angle of view: %d in degree" % angle)
 
                     rad = math.radians(angle)
 
@@ -233,8 +262,11 @@ if __name__ == "__main__":
                     try:
                         color, _ = r.render(scene, flags=RenderFlags.OFFSCREEN | RenderFlags.ALL_SOLID)
                     except Exception as e:
-                        print("Fatal: Render error.")
-                        continue
+                        write_log("Fatal: Render error!")
+                        write_log(e, verbose=False)
+                        # Drop current row
+                        row_mat = None
+                        break
 
                     assert color.shape[1] == g_single_viewport_size[0] and color.shape[0] == g_single_viewport_size[1], "Fatal: Inconsistent color map size"
 
@@ -246,16 +278,24 @@ if __name__ == "__main__":
 
                 for node in mesh_nodes: scene.remove_node(node)
 
+                if row_mat is None:
+                    write_log("Fatal: Failed to render the current row!")
+                    continue
+
                 if image_mat is None:
                     image_mat = row_mat
                 else:
                     assert image_mat.shape[1] == row_mat.shape[1], "Fatal: Inconsistent row size"
                     image_mat = np.vstack((image_mat, row_mat))
 
+            if image_mat is None:
+                write_log("Fatal: Failed to render the current image!")
+                continue
+
             # Save image
             image_path = os.path.join(parent_dir, filename + '_vis.png')
             image_mat = cv2.cvtColor(image_mat, cv2.COLOR_BGR2RGB)
             cv2.imwrite(image_path, image_mat)
 
+    # Recycle resources
     r.delete()
-
