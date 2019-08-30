@@ -26,7 +26,7 @@ g_log_filename = "render_mesh_to_image.log"
 def write_log(message, verbose=True):
     if g_log_filename:
         # Open log file
-        with open(g_log_filename, 'a') as f:
+        with open(g_log_filename, mode='a', encoding="utf-8") as f:
             print(message, file=f)
     if verbose:
         print(message)
