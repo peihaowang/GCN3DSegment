@@ -18,13 +18,22 @@ PIL.Image.MAX_IMAGE_PIXELS = 933120000
 
 # g_dataset_dir = "/Volumes/ClothesData/20190401_Data_Clothing/20190806_labeled_clothing/Dynamics"
 # g_dataset_dir = "F:/20190401_Data_Clothing/20190806_labeled_clothing/Dynamics"
-g_dataset_dir = "staticDome"
-g_dataset_kind = "static"
+g_dataset_dir = "dynaDome"
+g_dataset_kind = "dynamic"
 g_single_viewport_size = (640*2, 480*2)
 g_log_filename = "render_dataset.log"
 
 # Supported mesh format
 g_mesh_exts = [".obj", ".off", ".ply"]
+
+# Combinations of components to visualize
+g_vis_list = {
+    'origin': ['model']
+    , 'clothes': ['top', 'bottom', 'shoes', ['top', 'bottom', 'shoes'], ['model', 'top', 'bottom', 'shoes']]
+    , 'naked': ['naked', ['top', 'bottom', 'shoes', 'naked']]
+}
+
+g_view_angles = [0, 90, 180, 270]
 
 def write_log(message, verbose=True):
     if g_log_filename:
@@ -100,7 +109,35 @@ def read_mesh_from_dir(dir_path, load_texture=True):
 
     return mesh
 
-def traverse_static_dataset(root_dir, vis_keys):
+def read_mesh_by_name(dir_path, basename, suffix=None, load_texture=True):
+    mesh = None
+    if not os.path.isdir(dir_path): return None
+
+    if suffix is None:
+        exts = g_mesh_exts
+    elif isinstance(suffix, list):
+        exts = suffix
+    elif isinstance(suffix, str):
+        exts = [suffix]
+
+    for ext in exts:
+        # Read mesh via trimesh
+        mesh_path = os.path.join(dir_path, basename + ext)
+        if os.path.exists(mesh_path):
+            try:
+                resolver = None if load_texture else DummyResolver(dir_path)
+                mesh = trimesh.load(mesh_path, resolver=resolver)
+
+                if not isinstance(mesh, trimesh.Trimesh):
+                    raise TypeError()
+            except Exception as e:
+                mesh = None
+            finally:
+                break
+
+    return mesh
+
+def traverse_static_dataset(root_dir):
     for dir_name in os.listdir(root_dir):
         parent_dir = os.path.join(root_dir, dir_name)
 
@@ -150,40 +187,12 @@ def traverse_static_dataset(root_dir, vis_keys):
 
         # Return vis image path
         vis_path = {}
-        for key in vis_keys:
+        for key in g_vis_list.keys():
             vis_path[key] = os.path.join(parent_dir, key+'_vis.png')
 
         yield meshes, vis_path
 
-def read_mesh_by_name(dir_path, basename, suffix=None, load_texture=True):
-    mesh = None
-    if not os.path.isdir(dir_path): return None
-
-    if suffix is None:
-        exts = g_mesh_exts
-    elif isinstance(suffix, list):
-        exts = suffix
-    elif isinstance(suffix, str):
-        exts = [suffix]
-
-    for ext in exts:
-        # Read mesh via trimesh
-        mesh_path = os.path.join(dir_path, basename + ext)
-        if os.path.exists(mesh_path):
-            try:
-                resolver = None if load_texture else DummyResolver(dir_path)
-                mesh = trimesh.load(mesh_path, resolver=resolver)
-
-                if not isinstance(mesh, trimesh.Trimesh):
-                    raise TypeError()
-            except Exception as e:
-                mesh = None
-            finally:
-                break
-
-    return mesh
-
-def traverse_dynamic_dataset(root_dir, vis_keys):
+def traverse_dynamic_dataset(root_dir):
     for dir_name in os.listdir(root_dir):
         parent_dir = os.path.join(root_dir, dir_name)
 
@@ -245,7 +254,7 @@ def traverse_dynamic_dataset(root_dir, vis_keys):
 
             # Return vis image path
             vis_path = {}
-            for key in vis_keys:
+            for key in g_vis_list.keys():
                 vis_dir = os.path.join(parent_dir, key+'_vis')
 
                 if not os.path.exists(vis_dir):
@@ -256,22 +265,13 @@ def traverse_dynamic_dataset(root_dir, vis_keys):
 
             yield meshes, vis_path
 
-def traverse_dataset(root_dir, vis_keys, kind):
+def traverse_dataset(root_dir, kind):
     if kind.lower() == 'static':
-        yield from traverse_static_dataset(root_dir, vis_keys)
+        yield from traverse_static_dataset(root_dir)
     elif kind.lower() == 'dynamic':
-        yield from traverse_dynamic_dataset(root_dir, vis_keys)
+        yield from traverse_dynamic_dataset(root_dir)
 
 if __name__ == "__main__":
-
-    vis_list = {
-        'origin': ['model']
-        , 'clothes': ['top', 'bottom', 'shoes', ['top', 'bottom', 'shoes'], ['model', 'top', 'bottom', 'shoes']]
-        , 'naked': ['naked', ['top', 'bottom', 'shoes', 'naked']]
-    }
-
-    view_angles = [0, 90, 180, 270]
-
     # Light creation
     direc_l = DirectionalLight(color=np.ones(3), intensity=5.0)
     # spot_l = SpotLight(color=np.ones(3), intensity=10.0, innerConeAngle=np.pi/16, outerConeAngle=np.pi/6)
@@ -297,9 +297,9 @@ if __name__ == "__main__":
     write_log("Logging path: %s" % os.path.abspath(g_log_filename))
     write_log("Dataset kind: %s" % g_dataset_kind)
 
-    for meshes, save_paths in traverse_dataset(g_dataset_dir, vis_list.keys(), g_dataset_kind):
+    for meshes, save_paths in traverse_dataset(g_dataset_dir, g_dataset_kind):
 
-        for filename, component_list in vis_list.items():
+        for filename, component_list in g_vis_list.items():
 
             write_log("Start rendering image: %s" % filename)
 
@@ -339,7 +339,7 @@ if __name__ == "__main__":
                 cam_pos = aabb_center.copy()
 
                 max_offset = float('-inf')
-                for angle in view_angles:
+                for angle in g_view_angles:
                     rad = math.radians(angle)
 
                     # 1. Distance
@@ -368,7 +368,7 @@ if __name__ == "__main__":
 
                 # Concat each angle to form a row
                 row_mat = None
-                for angle in view_angles:
+                for angle in g_view_angles:
                     write_log("Rendering the angle of view: %d in degree" % angle)
 
                     rad = math.radians(angle)
