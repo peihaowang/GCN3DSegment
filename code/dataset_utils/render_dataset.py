@@ -1,7 +1,6 @@
-"""Examples of using pyrender for viewing and offscreen rendering.
-"""
+
+import os, sys, math, time
 import pyglet
-import os, sys, math
 import numpy as np
 import cv2, trimesh, PIL
 from transformations import *
@@ -17,11 +16,15 @@ pyglet.options['shadow_window'] = False
 # To suppress the warning that the loading image exceeds the size limit
 PIL.Image.MAX_IMAGE_PIXELS = 933120000
 
-# g_dataset_dir = "/Volumes/ClothesData/20190401_Data_Clothing/20190806_labeled_clothing/Static"
-g_dataset_dir = "F:/20190401_Data_Clothing/20190806_labeled_clothing/Static"
-# g_dataset_dir = "testDome"
+# g_dataset_dir = "/Volumes/ClothesData/20190401_Data_Clothing/20190806_labeled_clothing/Dynamics"
+# g_dataset_dir = "F:/20190401_Data_Clothing/20190806_labeled_clothing/Dynamics"
+g_dataset_dir = "staticDome"
+g_dataset_kind = "static"
 g_single_viewport_size = (640*2, 480*2)
-g_log_filename = "render_mesh_to_image.log"
+g_log_filename = "render_dynamic_dataset.log"
+
+# Supported mesh format
+g_mesh_exts = [".obj", ".off", ".ply"]
 
 def write_log(message, verbose=True):
     if g_log_filename:
@@ -46,34 +49,6 @@ class DummyResolver(trimesh.visual.resolvers.FilePathResolver):
             return data.tobytes()
         else:
             return super(DummyResolver, self).get(name)
-
-def read_mesh_from_dir(dir_path, load_texture=True):
-    # Supported mesh format
-    mesh_exts = [".obj", ".off", ".ply"]
-
-    mesh = None
-    if not os.path.isdir(dir_path): return None
-
-    for filename in os.listdir(dir_path):
-        base_name, ext_name = os.path.splitext(filename)
-        if ext_name.lower() in mesh_exts:
-            # Read mesh via trimesh
-            mesh_path = os.path.join(dir_path, filename)
-
-            try:
-                resolver = None if load_texture else DummyResolver(dir_path)
-                # sys.stderr = None
-                mesh = trimesh.load(mesh_path, resolver=resolver)
-                # sys.stderr = sys.__stderr__
-
-                if not isinstance(mesh, trimesh.Trimesh):
-                    raise TypeError()
-            except Exception as e:
-                mesh = None
-            finally:
-                break
-
-    return mesh
 
 def extract_material(mesh):
     pyrender_mat = None
@@ -100,37 +75,34 @@ def extract_material(mesh):
             )
     return pyrender_mat
 
-if __name__ == "__main__":
+def read_mesh_from_dir(dir_path, load_texture=True):
+    mesh = None
+    if not os.path.isdir(dir_path): return None
 
-    vis_list = {
-        'origin': ['model']
-        , 'clothes': ['top', 'bottom', 'shoes', ['top', 'bottom', 'shoes'], ['model', 'top', 'bottom', 'shoes']]
-        , 'naked': ['naked', ['top', 'bottom', 'shoes', 'naked']]
-    }
+    for filename in os.listdir(dir_path):
+        base_name, ext_name = os.path.splitext(filename)
+        if ext_name.lower() in g_mesh_exts:
+            # Read mesh via trimesh
+            mesh_path = os.path.join(dir_path, filename)
 
-    view_angles = [0, 90, 180, 270]
+            try:
+                resolver = None if load_texture else DummyResolver(dir_path)
+                # sys.stderr = None
+                mesh = trimesh.load(mesh_path, resolver=resolver)
+                # sys.stderr = sys.__stderr__
 
-    # Light creation
-    direc_l = DirectionalLight(color=np.ones(3), intensity=5.0)
-    # spot_l = SpotLight(color=np.ones(3), intensity=10.0, innerConeAngle=np.pi/16, outerConeAngle=np.pi/6)
-    point_l = PointLight(color=np.ones(3), intensity=10.0)
+                if not isinstance(mesh, trimesh.Trimesh):
+                    raise TypeError()
+            except Exception as e:
+                mesh = None
+            finally:
+                break
 
-    # Camera creation
-    cam = PerspectiveCamera(yfov=(np.pi / 3.0))
+    return mesh
 
-    # Scene creation
-    scene = Scene(ambient_light=np.array([0.02, 0.02, 0.02, 1.0]))
-
-    # Adding objects to the scene
-    cam_node = scene.add(cam)
-    direc_l_node = scene.add(direc_l, parent_node=cam_node)
-    # spot_l_node = scene.add(spot_l, parent_node=cam_node)
-    point_l_node = scene.add(point_l, parent_node=cam_node)
-
-    r = OffscreenRenderer(viewport_width=g_single_viewport_size[0], viewport_height=g_single_viewport_size[1])
-
-    for dir_name in os.listdir(g_dataset_dir):
-        parent_dir = os.path.join(g_dataset_dir, dir_name)
+def traverse_static_dataset(root_dir, vis_keys):
+    for dir_name in os.listdir(root_dir):
+        parent_dir = os.path.join(root_dir, dir_name)
 
         if not os.path.isdir(parent_dir): continue
 
@@ -175,7 +147,157 @@ if __name__ == "__main__":
 
         if len(meshes) <= 1:
             write_log("Warning: Only origin mesh available")
+
+        # Return vis image path
+        vis_path = {}
+        for key in vis_keys:
+            vis_path[key] = os.path.join(parent_dir, key+'_vis.png')
+
+        yield meshes, vis_path
+
+def read_mesh_by_name(dir_path, basename, suffix=None, load_texture=True):
+    mesh = None
+    if not os.path.isdir(dir_path): return None
+
+    if suffix is None:
+        exts = g_mesh_exts
+    elif isinstance(suffix, list):
+        exts = suffix
+    elif isinstance(suffix, str):
+        exts = [suffix]
+
+    for ext in exts:
+        # Read mesh via trimesh
+        mesh_path = os.path.join(dir_path, basename + ext)
+        if os.path.exists(mesh_path):
+            try:
+                resolver = None if load_texture else DummyResolver(dir_path)
+                mesh = trimesh.load(mesh_path, resolver=resolver)
+
+                if not isinstance(mesh, trimesh.Trimesh):
+                    raise TypeError()
+            except Exception as e:
+                mesh = None
+            finally:
+                break
+
+    return mesh
+
+def traverse_dynamic_dataset(root_dir, vis_keys):
+    for dir_name in os.listdir(root_dir):
+        parent_dir = os.path.join(root_dir, dir_name)
+
+        if not os.path.isdir(parent_dir): continue
+
+        write_log("Visualizing human model: %s" % dir_name)
+
+        meshes = {}
+
+        origin_dir = os.path.join(parent_dir, 'model')
+        if not os.path.isdir(origin_dir):
+            write_log("Fatal: No origin mesh!")
             continue
+
+        for mesh_name in os.listdir(origin_dir):
+            mesh_base, mesh_suffix = os.path.splitext(mesh_name)
+
+            if mesh_suffix.lower() not in g_mesh_exts: continue
+
+            write_log("Visualizing frame: %s/%s" % (dir_name, mesh_base))
+
+            # Read origin mesh first
+            write_log("Loading origin mesh ...")
+            origin_mesh = read_mesh_by_name(origin_dir, mesh_base, suffix=mesh_suffix, load_texture=True)
+            if origin_mesh is None:
+                write_log("Fatal: No origin mesh!")
+                continue
+
+            # Extract common material
+            write_log("Extracting common material ...")
+            common_material = extract_material(origin_mesh)
+            if common_material is None:
+                write_log("Fatal: Invalid material extracted")
+                continue
+
+            # Convert origin mesh to pyrender mesh
+            meshes['model'] = Mesh.from_trimesh(origin_mesh, material=common_material)
+            # Force to release memory
+            del origin_mesh
+
+            all_components = ['top', 'bottom', 'shoes', 'naked']
+            for component in all_components:
+                write_log("Loading component %s mesh ..." % component)
+                component_dir = os.path.join(parent_dir, component)
+                component_mesh = read_mesh_by_name(component_dir, mesh_base, load_texture=False)
+                if component_mesh is None:
+                    write_log("No component %s mesh" % component)
+                    continue
+
+                # Convert to pyrender mesh
+                material = common_material if component != 'naked' else None
+                mesh = Mesh.from_trimesh(component_mesh, material=material)
+                meshes[component] = mesh
+                # Force to release memory
+                del component_mesh
+
+            if len(meshes) <= 1:
+                write_log("Warning: Only origin mesh available")
+
+            # Return vis image path
+            vis_path = {}
+            for key in vis_keys:
+                vis_dir = os.path.join(parent_dir, key+'_vis')
+
+                if not os.path.exists(vis_dir):
+                    write_log("Making directory for visualization: %s" % vis_dir)
+                    os.mkdir(vis_dir)
+
+                vis_path[key] = os.path.join(vis_dir, mesh_base+'.png')
+
+            yield meshes, vis_path
+
+def traverse_dataset(root_dir, vis_keys, kind):
+    if kind.lower() == 'static':
+        yield from traverse_static_dataset(root_dir, vis_keys)
+    elif kind.lower() == 'dynamic':
+        yield from traverse_dynamic_dataset(root_dir, vis_keys)
+
+if __name__ == "__main__":
+
+    vis_list = {
+        'origin': ['model']
+        , 'clothes': ['top', 'bottom', 'shoes', ['top', 'bottom', 'shoes'], ['model', 'top', 'bottom', 'shoes']]
+        , 'naked': ['naked', ['top', 'bottom', 'shoes', 'naked']]
+    }
+
+    view_angles = [0, 90, 180, 270]
+
+    # Light creation
+    direc_l = DirectionalLight(color=np.ones(3), intensity=5.0)
+    # spot_l = SpotLight(color=np.ones(3), intensity=10.0, innerConeAngle=np.pi/16, outerConeAngle=np.pi/6)
+    point_l = PointLight(color=np.ones(3), intensity=10.0)
+
+    # Camera creation
+    cam = PerspectiveCamera(yfov=(np.pi / 3.0))
+
+    # Scene creation
+    scene = Scene(ambient_light=np.array([0.02, 0.02, 0.02, 1.0]))
+
+    # Adding objects to the scene
+    cam_node = scene.add(cam)
+    direc_l_node = scene.add(direc_l, parent_node=cam_node)
+    # spot_l_node = scene.add(spot_l, parent_node=cam_node)
+    point_l_node = scene.add(point_l, parent_node=cam_node)
+
+    r = OffscreenRenderer(viewport_width=g_single_viewport_size[0], viewport_height=g_single_viewport_size[1])
+
+    # Start logging flag
+    write_log("Start logging at %s" % time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
+    write_log("Dataset path: %s" % os.path.abspath(g_dataset_dir))
+    write_log("Logging path: %s" % os.path.abspath(g_log_filename))
+    write_log("Dataset kind: %s" % g_dataset_kind)
+
+    for meshes, save_paths in traverse_dataset(g_dataset_dir, vis_list.keys(), g_dataset_kind):
 
         for filename, component_list in vis_list.items():
 
@@ -293,7 +415,7 @@ if __name__ == "__main__":
                 continue
 
             # Save image
-            image_path = os.path.join(parent_dir, filename + '_vis.png')
+            image_path = save_paths[filename]
             image_mat = cv2.cvtColor(image_mat, cv2.COLOR_BGR2RGB)
             cv2.imwrite(image_path, image_mat)
 
