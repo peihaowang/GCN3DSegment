@@ -21,7 +21,7 @@ PIL.Image.MAX_IMAGE_PIXELS = 933120000
 g_dataset_dir = "staticDome"
 g_dataset_kind = "static"
 g_single_viewport_size = (640*2, 480*2)
-g_log_filename = "render_dynamic_dataset.log"
+g_log_filename = "render_dataset.log"
 
 # Supported mesh format
 g_mesh_exts = [".obj", ".off", ".ply"]
