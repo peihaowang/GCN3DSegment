@@ -3,9 +3,9 @@ import trimesh
 import numpy as np
 import tensorflow as tf
 
-g_dataset_dir = "smallDome"
+g_dataset_dir = "testDome"
 # g_dataset_dir = "/Volumes/ClothesData/20190401_Data_Clothing/20190806_labeled_clothing/Static"
-g_output_path = "domecloth.tfrecords"
+g_output_path = "domecloth.test.tfrecords"
 
 # The following functions can be used to convert a value to a type compatible
 # with tf.Example.

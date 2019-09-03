@@ -1,23 +1,43 @@
-import sys, os, io
-import trimesh, PIL
+import sys, os, io, time
+import trimesh
+import PIL
+import cv2
 import scipy
 import numpy as np
 
-g_dataset_dir = "smallDome"
+g_dataset_dir = "testDome"
 # g_dataset_dir = "/Volumes/ClothesData/20190401_Data_Clothing/20190806_labeled_clothing/Static"
 g_log_filename = "compute_cloth_labels.log"
 g_override_mode = True
 
-def write_log(lines, output=False):
-    if isinstance(lines, str):
-        lines = [lines+'\n']
+# To suppress the warning that the loading image exceeds the size limit
+PIL.Image.MAX_IMAGE_PIXELS = 933120000
 
-    if output: print(''.join(lines), end='')
+def write_log(message, verbose=True):
+    if g_log_filename:
+        # Open log file
+        with open(g_log_filename, mode='a', encoding="utf-8") as f:
+            print(message, file=f)
+    if verbose:
+        print(message)
 
-    with open(g_log_filename, 'a') as f:
-        f.writelines(lines)
+class DummyResolver(trimesh.visual.resolvers.FilePathResolver):
+    def __init__(self, source):
+        super(DummyResolver, self).__init__(source)
 
-def read_mesh_from_dir(dir_path):
+    def get(self, name):
+        # Supported mesh format
+        image_exts = [".png", ".jpg", ".jpeg", ".bmp"]
+
+        _, ext_name = os.path.splitext(name)
+        if ext_name.lower() in image_exts:
+            fake_texture = np.zeros((5, 5), dtype=np.uint8)
+            _, data = cv2.imencode('.png', fake_texture)
+            return data.tobytes()
+        else:
+            return super(DummyResolver, self).get(name)
+
+def read_mesh_from_dir(dir_path, load_texture=True):
 
     # Supported mesh format
     mesh_exts = [".obj", ".off", ".ply"]
@@ -34,7 +54,8 @@ def read_mesh_from_dir(dir_path):
             try:
                 # Disable error output
                 sys.stderr = None
-                mesh = trimesh.load(mesh_path)
+                resolver = None if load_texture else DummyResolver(dir_path)
+                mesh = trimesh.load(mesh_path, resolver=resolver)
                 sys.stderr = sys.__stderr__
 
                 if not isinstance(mesh, trimesh.Trimesh):
@@ -56,6 +77,8 @@ if __name__ == "__main__":
         , 'shoes': 4
     }
 
+    write_log("Start logging at %s" % time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
+
     for dir_name in os.listdir(g_dataset_dir):
         parent_dir = os.path.join(g_dataset_dir, dir_name)
 
@@ -69,14 +92,14 @@ if __name__ == "__main__":
                     skip = True
                     break
             if skip:
-                print("Avoid double computing labels, skip %s" % dir_name)
+                write_log("Warning: Avoid double computing labels, skip %s" % dir_name)
                 continue
 
-        print("Computing labels for mesh %s" % dir_name)
+        write_log("Computing labels for mesh %s" % dir_name)
 
-        origin_mesh = read_mesh_from_dir(parent_dir)
+        origin_mesh = read_mesh_from_dir(parent_dir, load_texture=False)
         if origin_mesh is None:
-            print("Cannot find the origin mesh %s" % dir_name, True)
+            write_log("Fatal: Cannot find the origin mesh %s" % dir_name)
             continue
 
         # Maximum distance
@@ -93,26 +116,28 @@ if __name__ == "__main__":
         components = ['top', 'bottom', 'shoes']
         for component in components:
             component_dir = os.path.join(parent_dir, component)
-            component_mesh = read_mesh_from_dir(component_dir)
+            component_mesh = read_mesh_from_dir(component_dir, load_texture=False)
             if component_mesh is None:
-                print("No component %s mesh" % component)
+                write_log("No component %s mesh" % component)
                 continue
 
-            print("Finding corresponding vertices: %s/%s" % (dir_name, component))
+            write_log("Finding corresponding vertices: %s/%s" % (dir_name, component))
 
             # Calculate the distances between each vertex
             min_dists, idx = tree.query(component_mesh.vertices)
 
             # Give warning if the minimum gap is too large
             rought_idx = idx[min_dists > epsilon]
+            rought_dists = idx[min_dists > epsilon]
             outliers_proportion = rought_idx.size / component_mesh.vertices.shape[0]
-            # rought_dists = min_dists[min_dists > max_epsilon]
             if 0 < outliers_proportion and outliers_proportion <= max_outliers_proportion:
-                print("Warning: Cannot find the accurate correspondence for %d vertices, take the nearest vertex alternatively." % rought_idx.size)
-                # write_log("Warning: Cannot find the accurate correspondence for the following vertices, take the nearest vertex alternatively:")
-                # write_log(" ".join(["(%d, %0.2f)" % (i, d) for i, d in zip(rought_idx, rought_dists)]))
+                write_log("Warning: Cannot find the accurate correspondence for %d(%0.2f%%) vertices, take the nearest vertex alternatively." % (rought_idx.size, outliers_proportion))
+                write_log("Warning: The outliers are listed as follows:", verbose=False)
+                write_log(" ".join(["(%d, %0.2f)" % (i, d) for i, d in zip(rought_idx, rought_dists)]), verbose=False)
             elif outliers_proportion > max_outliers_proportion:
-                print("Fatal: Too many outliers(%d, %f), cannot match two mesh: %s -> %s" % (rought_idx.size, outliers_proportion, component, dir_name))
+                write_log("Fatal: Too many outliers(count: %d, percentage: %0.2f%%), cannot match two mesh: %s -> %s" % (rought_idx.size, outliers_proportion, component, dir_name))
+                write_log("Fatal: The outliers are listed as follows:", verbose=False)
+                write_log(" ".join(["(%d, %0.2f)" % (i, d) for i, d in zip(rought_idx, rought_dists)]), verbose=False)
 
             # Fill in the indices of duplicated vertices
             idx = np.concatenate([np.array(coo.col[coo.row == v]) for v in idx])
@@ -121,7 +146,7 @@ if __name__ == "__main__":
             # Add labels
             labels[idx] = label_map[component]
     
-            print("Successfully labeled %d vertices for %s/%s" % (idx.shape[0], dir_name, component))
+            write_log("Successfully labeled %d vertices for %s/%s" % (idx.shape[0], dir_name, component))
 
         # Serialize to string
         label_name = dir_name + "_labelsV.txt"
@@ -129,6 +154,6 @@ if __name__ == "__main__":
         lines = [str(i)+'\n' for i in labels]
         with open(label_path, 'w') as f:
             f.writelines(lines)
-        print("Successfully write labels to %s" % label_path)
+        write_log("Successfully write labels to %s" % label_path)
 
     

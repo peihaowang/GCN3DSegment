@@ -53,7 +53,7 @@ class DummyResolver(trimesh.visual.resolvers.FilePathResolver):
 
         _, ext_name = os.path.splitext(name)
         if ext_name.lower() in image_exts:
-            fake_texture = np.zeros((10, 10), dtype=np.uint8)
+            fake_texture = np.zeros((5, 5), dtype=np.uint8)
             _, data = cv2.imencode('.png', fake_texture)
             return data.tobytes()
         else:
@@ -96,9 +96,7 @@ def read_mesh_from_dir(dir_path, load_texture=True):
 
             try:
                 resolver = None if load_texture else DummyResolver(dir_path)
-                # sys.stderr = None
                 mesh = trimesh.load(mesh_path, resolver=resolver)
-                # sys.stderr = sys.__stderr__
 
                 if not isinstance(mesh, trimesh.Trimesh):
                     raise TypeError()
