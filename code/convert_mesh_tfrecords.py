@@ -3,9 +3,11 @@ import trimesh
 import numpy as np
 import tensorflow as tf
 
-g_dataset_dir = "testDome"
+from obj_loader import *
+
+g_dataset_dir = "trainDome"
 # g_dataset_dir = "/Volumes/ClothesData/20190401_Data_Clothing/20190806_labeled_clothing/Static"
-g_output_path = "domecloth.test.tfrecords"
+g_output_path = "domecloth.train.tfrecords"
 
 # The following functions can be used to convert a value to a type compatible
 # with tf.Example.
@@ -50,7 +52,7 @@ def serialize_mesh(writer, mesh_path, label_path):
 
     # Disable error output
     sys.stderr = None
-    mesh = trimesh.load(mesh_path)
+    mesh = load_obj_ex(mesh_path, raw_mesh=True)
     sys.stderr = sys.__stderr__
 
     if not isinstance(mesh, trimesh.Trimesh):

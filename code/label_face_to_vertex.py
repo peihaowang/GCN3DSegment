@@ -2,24 +2,10 @@ import sys, os
 import trimesh
 import numpy as np
 
+from obj_loader import *
+
 g_dataset_dir = "cosegCup/test"
 g_export_per_face_labels = False
-
-class DummyResolver(trimesh.visual.resolvers.FilePathResolver):
-    def __init__(self, source):
-        super(DummyResolver, self).__init__(source)
-
-    def get(self, name):
-        # Supported mesh format
-        image_exts = [".png", ".jpg", ".jpeg", ".bmp"]
-
-        _, ext_name = os.path.splitext(name)
-        if ext_name.lower() in image_exts:
-            fake_texture = np.zeros((5, 5), dtype=np.uint8)
-            _, data = cv2.imencode('.png', fake_texture)
-            return data.tobytes()
-        else:
-            return super(DummyResolver, self).get(name)
 
 def parse_per_label_labels(label_path):
     categories = []
@@ -73,7 +59,7 @@ if __name__ == "__main__":
 
         # Read mesh via trimesh
         # Note that disable texture to make loading more efficient
-        mesh = trimesh.load(mesh_path, resolver=DummyResolver(g_dataset_dir))
+        mesh = load_obj_ex(mesh_path, raw_mesh=True)
 
         # Read face labels
         new_label_name = base_name + '_labelsV.txt'

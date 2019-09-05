@@ -5,7 +5,9 @@ import cv2
 import scipy
 import numpy as np
 
-g_dataset_dir = "testDome"
+from obj_loader import *
+
+g_dataset_dir = "trainDome"
 # g_dataset_dir = "/Volumes/ClothesData/20190401_Data_Clothing/20190806_labeled_clothing/Static"
 g_log_filename = "compute_cloth_labels.log"
 g_override_mode = True
@@ -21,23 +23,7 @@ def write_log(message, verbose=True):
     if verbose:
         print(message)
 
-class DummyResolver(trimesh.visual.resolvers.FilePathResolver):
-    def __init__(self, source):
-        super(DummyResolver, self).__init__(source)
-
-    def get(self, name):
-        # Supported mesh format
-        image_exts = [".png", ".jpg", ".jpeg", ".bmp"]
-
-        _, ext_name = os.path.splitext(name)
-        if ext_name.lower() in image_exts:
-            fake_texture = np.zeros((5, 5), dtype=np.uint8)
-            _, data = cv2.imencode('.png', fake_texture)
-            return data.tobytes()
-        else:
-            return super(DummyResolver, self).get(name)
-
-def read_mesh_from_dir(dir_path, load_texture=True):
+def read_mesh_from_dir(dir_path):
 
     # Supported mesh format
     mesh_exts = [".obj", ".off", ".ply"]
@@ -46,7 +32,7 @@ def read_mesh_from_dir(dir_path, load_texture=True):
     if not os.path.isdir(dir_path): return None
 
     for filename in os.listdir(dir_path):
-        
+
         # Skip hidden files
         if filename.startswith('.'): continue
 
@@ -58,13 +44,13 @@ def read_mesh_from_dir(dir_path, load_texture=True):
             try:
                 # Disable error output
                 sys.stderr = None
-                resolver = None if load_texture else DummyResolver(dir_path)
-                mesh = trimesh.load(mesh_path, resolver=resolver)
+                mesh = load_obj_ex(mesh_path, raw_mesh=True)
                 sys.stderr = sys.__stderr__
 
                 if not isinstance(mesh, trimesh.Trimesh):
-                    raise TypeError()
-            except:
+                    raise TypeError("TypeError: Loading failed or multiple geometry detected")
+            except Exception as e:
+                write_log(e, verbose=False)
                 mesh = None
             finally:
                 break
@@ -101,10 +87,12 @@ if __name__ == "__main__":
 
         write_log("Computing labels for mesh %s" % dir_name)
 
-        origin_mesh = read_mesh_from_dir(parent_dir, load_texture=False)
+        origin_mesh = read_mesh_from_dir(parent_dir)
         if origin_mesh is None:
             write_log("Fatal: Cannot find the origin mesh %s" % dir_name)
             continue
+
+        write_log("Load origin mesh successfully (vertices=%d, faces=%d)" % (origin_mesh.vertices.shape[0], origin_mesh.faces.shape[0]))
 
         # Maximum distance
         epsilon = 1e-8
@@ -120,7 +108,7 @@ if __name__ == "__main__":
         components = ['top', 'bottom', 'shoes']
         for component in components:
             component_dir = os.path.join(parent_dir, component)
-            component_mesh = read_mesh_from_dir(component_dir, load_texture=False)
+            component_mesh = read_mesh_from_dir(component_dir)
             if component_mesh is None:
                 write_log("No component %s mesh" % component)
                 continue
