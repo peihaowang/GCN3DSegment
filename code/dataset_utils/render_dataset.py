@@ -89,6 +89,10 @@ def read_mesh_from_dir(dir_path, load_texture=True):
     if not os.path.isdir(dir_path): return None
 
     for filename in os.listdir(dir_path):
+        
+        # Skip hidden files
+        if filename.startswith('.'): continue
+
         base_name, ext_name = os.path.splitext(filename)
         if ext_name.lower() in g_mesh_exts:
             # Read mesh via trimesh
