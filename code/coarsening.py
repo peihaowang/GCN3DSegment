@@ -7,7 +7,7 @@ def coarsen(A, levels, self_connections=False):
     Coarsen a graph, represented by its adjacency matrix A, at multiple
     levels.
     """
-    graphs, parents = metis(A, levels)
+    graphs, parents, perm_mats = metis(A, levels)
     perms = compute_perm(parents)
 
     for i, A in enumerate(graphs):
@@ -16,6 +16,7 @@ def coarsen(A, levels, self_connections=False):
         if not self_connections:
             A = A.tocoo()
             A.setdiag(0)
+            A.eliminate_zeros()
 
         if i < levels:
             A = perm_adjacency(A, perms[i])
@@ -28,7 +29,8 @@ def coarsen(A, levels, self_connections=False):
         print('Layer {0}: M_{0} = |V| = {1} nodes ({2} added),'
               '|E| = {3} edges'.format(i, Mnew, Mnew-M, A.nnz//2))
 
-    return graphs, perms[0] if levels > 0 else None
+    # return graphs, perms[0] if levels > 0 else None
+    return graphs, perms, perm_mats
 
 
 def metis(W, levels, rid=None):
@@ -43,6 +45,8 @@ def metis(W, levels, rid=None):
     graph[levels]: coarsest graph of Size N_levels < ... < N_2 < N_1
     parents[i] is a vector of size N_i with entries ranging from 1 to N_{i+1}
         which indicate the parents in the coarser graph[i+1]
+    perm_mats[i] is a N_{i+1} by N_i sparse matrix, such that N_{i, j_1}
+        , N_{i, j_2}, ... != 0, indicates node j_1, j_2, ... will be coarsened to node i
     nd_sz{i} is a vector of size N_i that contains the size of the supernode in the graph{i}
     NOTE
     if "graph" is a list of length k, then "parents" will be a list of length k-1
@@ -52,6 +56,7 @@ def metis(W, levels, rid=None):
     if rid is None:
         rid = np.random.permutation(range(N))
     parents = []
+    perm_mats = []
     degree = W.sum(axis=0) - W.diagonal()
     graphs = []
     graphs.append(W)
@@ -68,6 +73,7 @@ def metis(W, levels, rid=None):
         # weights = ones(N,1)       # metis weights
         weights = degree            # graclus weights
         # weights = supernode_size  # other possibility
+
         weights = np.array(weights).squeeze()
 
         # PAIR THE VERTICES AND CONSTRUCT THE ROOT VECTOR
@@ -76,8 +82,9 @@ def metis(W, levels, rid=None):
         rr = idx_row[perm]
         cc = idx_col[perm]
         vv = val[perm]
-        cluster_id = metis_one_level(rr,cc,vv,rid,weights)  # rr is ordered
+        cluster_id, perm_mat = metis_one_level(N,rr,cc,vv,rid,weights)  # rr is ordered
         parents.append(cluster_id)
+        perm_mats.append(perm_mat)
 
         # TO DO
         # COMPUTE THE SIZE OF THE SUPERNODES AND THEIR DEGREE 
@@ -93,6 +100,7 @@ def metis(W, levels, rid=None):
         Nnew = cluster_id.max() + 1
         # CSR is more appropriate: row,val pairs appear multiple times
         W = scipy.sparse.csr_matrix((nvv,(nrr,ncc)), shape=(Nnew,Nnew))
+        W.setdiag(0) # Eliminate self connection
         W.eliminate_zeros()
         # Add new graph to the list of all coarsened graphs
         graphs.append(W)
@@ -109,30 +117,36 @@ def metis(W, levels, rid=None):
         ss = np.array(W.sum(axis=0)).squeeze()
         rid = np.argsort(ss)
 
-    return graphs, parents
+    return graphs, parents, perm_mats
 
 
 # Coarsen a graph given by rr,cc,vv.  rr is assumed to be ordered
-def metis_one_level(rr,cc,vv,rid,weights):
+def metis_one_level(N,rr,cc,vv,rid,weights):
 
     nnz = rr.shape[0]
-    N = rr[nnz-1] + 1
+    # N = rr[nnz-1] + 1
+
+    assert rr[nnz-1] + 1 <= N
+    assert weights.shape[0] == N
+    assert rid.shape[0] == N
 
     marked = np.zeros(N, np.bool)
     rowstart = np.zeros(N, np.int32)
     rowlength = np.zeros(N, np.int32)
     cluster_id = np.zeros(N, np.int32)
 
-    oldval = rr[0]
+    oldval = float('-inf')
     count = 0
     clustercount = 0
 
+    rows = []
+    cols = []
+
     for ii in range(nnz):
-        rowlength[count] = rowlength[count] + 1
         if rr[ii] > oldval:
             oldval = rr[ii]
-            rowstart[count+1] = ii
-            count = count + 1
+            rowstart[rr[ii]] = ii
+            rowlength[rr[ii]] = rowlength[rr[ii]] + 1
 
     for ii in range(N):
         tid = rid[ii]
@@ -153,13 +167,28 @@ def metis_one_level(rr,cc,vv,rid,weights):
 
             cluster_id[tid] = clustercount
 
+            rows.append(clustercount)
+            cols.append(tid)
+
             if bestneighbor > -1:
                 cluster_id[bestneighbor] = clustercount
                 marked[bestneighbor] = True
 
+                rows.append(clustercount)
+                cols.append(bestneighbor)
+
             clustercount += 1
 
-    return cluster_id
+    assert len(rows) == len(cols)
+
+    rows = np.array(rows, dtype=np.int32)
+    cols = np.array(cols, dtype=np.int32)
+    data = np.ones(rows.shape[0], dtype=np.float32)
+
+    M = rows[rows.shape[0]-1] + 1
+    perm_mat = scipy.sparse.csr_matrix((data, (rows, cols)), shape=(M, N), dtype=np.float32)
+
+    return cluster_id, perm_mat
 
 def compute_perm(parents):
     """
