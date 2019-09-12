@@ -7,7 +7,7 @@ def coarsen(A, levels, self_connections=False):
     Coarsen a graph, represented by its adjacency matrix A, at multiple
     levels.
     """
-    graphs, parents, perm_mats = metis(A, levels)
+    graphs, parents = metis(A, levels)
     perms = compute_perm(parents)
 
     for i, A in enumerate(graphs):
@@ -30,7 +30,7 @@ def coarsen(A, levels, self_connections=False):
               '|E| = {3} edges'.format(i, Mnew, Mnew-M, A.nnz//2))
 
     # return graphs, perms[0] if levels > 0 else None
-    return graphs, perms, perm_mats
+    return graphs, perms
 
 
 def metis(W, levels, rid=None):
@@ -45,8 +45,6 @@ def metis(W, levels, rid=None):
     graph[levels]: coarsest graph of Size N_levels < ... < N_2 < N_1
     parents[i] is a vector of size N_i with entries ranging from 1 to N_{i+1}
         which indicate the parents in the coarser graph[i+1]
-    perm_mats[i] is a N_{i+1} by N_i sparse matrix, such that N_{i, j_1}
-        , N_{i, j_2}, ... != 0, indicates node j_1, j_2, ... will be coarsened to node i
     nd_sz{i} is a vector of size N_i that contains the size of the supernode in the graph{i}
     NOTE
     if "graph" is a list of length k, then "parents" will be a list of length k-1
@@ -56,7 +54,6 @@ def metis(W, levels, rid=None):
     if rid is None:
         rid = np.random.permutation(range(N))
     parents = []
-    perm_mats = []
     degree = W.sum(axis=0) - W.diagonal()
     graphs = []
     graphs.append(W)
@@ -82,9 +79,8 @@ def metis(W, levels, rid=None):
         rr = idx_row[perm]
         cc = idx_col[perm]
         vv = val[perm]
-        cluster_id, perm_mat = metis_one_level(N,rr,cc,vv,rid,weights)  # rr is ordered
+        cluster_id = metis_one_level(N,rr,cc,vv,rid,weights)  # rr is ordered
         parents.append(cluster_id)
-        perm_mats.append(perm_mat)
 
         # TO DO
         # COMPUTE THE SIZE OF THE SUPERNODES AND THEIR DEGREE 
@@ -117,7 +113,7 @@ def metis(W, levels, rid=None):
         ss = np.array(W.sum(axis=0)).squeeze()
         rid = np.argsort(ss)
 
-    return graphs, parents, perm_mats
+    return graphs, parents
 
 
 # Coarsen a graph given by rr,cc,vv.  rr is assumed to be ordered
@@ -138,9 +134,6 @@ def metis_one_level(N,rr,cc,vv,rid,weights):
     oldval = float('-inf')
     count = 0
     clustercount = 0
-
-    rows = []
-    cols = []
 
     for ii in range(nnz):
         if rr[ii] > oldval:
@@ -167,28 +160,40 @@ def metis_one_level(N,rr,cc,vv,rid,weights):
 
             cluster_id[tid] = clustercount
 
-            rows.append(clustercount)
-            cols.append(tid)
-
             if bestneighbor > -1:
                 cluster_id[bestneighbor] = clustercount
                 marked[bestneighbor] = True
 
-                rows.append(clustercount)
-                cols.append(bestneighbor)
-
             clustercount += 1
 
-    assert len(rows) == len(cols)
+    return cluster_id
 
-    rows = np.array(rows, dtype=np.int32)
-    cols = np.array(cols, dtype=np.int32)
-    data = np.ones(rows.shape[0], dtype=np.float32)
+def compute_perm_mats(parents, join=False):
+    '''
+    parents: List of vectors which indicates the parents
+        of nodes in next level.
+    join: Flag which specifies whether times permuation
+        matrices up to obtain the final permutation at
+        each step.
 
-    M = rows[rows.shape[0]-1] + 1
-    perm_mat = scipy.sparse.csr_matrix((data, (rows, cols)), shape=(M, N), dtype=np.float32)
-
-    return cluster_id, perm_mat
+    Return a list, where the i-th element is a N_{i+1}
+        by N_i sparse matrix, such that N_{i, j_1}
+        , N_{i, j_2}, ... != 0, indicates node j_1, j_2, ...
+        will be coarsened to node i
+    '''
+    perm_mats = []
+    for i, parent in enumerate(parents):
+        M = np.max(parent) + 1
+        N = parent.shape[0]
+        reorder = np.argsort(parent)
+        rows = parent.astype(np.int32)[reorder]
+        cols = np.arange(parent.shape[0], dtype=np.int32)[reorder]
+        data = np.ones(rows.shape[0], dtype=np.float32)
+        perm_mat = scipy.sparse.csr_matrix((data, (rows, cols)), shape=(M, N), dtype=np.float32)
+        if join and i != 0:
+            perm_mat = scipy.sparse.csr_matrix.dot(perm_mat, perm_mats[i-1])
+        perm_mats.append(perm_mat)
+    return perm_mats
 
 def compute_perm(parents):
     """
