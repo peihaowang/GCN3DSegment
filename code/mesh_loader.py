@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import collections
 import trimesh
@@ -13,13 +14,21 @@ from trimesh.constants import log, tol
 from trimesh.exchange.obj import parse_mtl, _parse_vertices, _preprocess_faces \
     , _group_by_material, _parse_faces_vectorized, _parse_faces_fallback
 
-__all__ = ['load_obj_ex']
+__all__ = ['load', 'load_obj_ex']
 
-def load_obj_ex(path,
-             raw_mesh=False,
-             resolver=None,
-             split_object=False,
-             group_material=True
+def load(path, raw_mesh=False, resolver=None):
+    _, ext_name = os.path.splitext(path)
+    if ext_name.lower() == '.obj':
+        return load_obj_ex(path, raw_mesh=raw_mesh, resolver=resolver)
+    else:
+        return trimesh.load(path, resolver=resolver)
+
+def load_obj_ex(
+    path,
+    raw_mesh=False,
+    resolver=None,
+    split_object=False,
+    group_material=True
 ):
     """
     Load a Wavefront OBJ file into kwargs for a trimesh.Scene

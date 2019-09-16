@@ -2,7 +2,7 @@ import sys, os
 import trimesh
 import numpy as np
 
-from obj_loader import *
+import mesh_loader
 
 g_dataset_dir = "cosegCup/test"
 g_export_per_face_labels = False
@@ -59,7 +59,7 @@ if __name__ == "__main__":
 
         # Read mesh via trimesh
         # Note that disable texture to make loading more efficient
-        mesh = load_obj_ex(mesh_path, raw_mesh=True)
+        mesh = mesh_loader.load(mesh_path, raw_mesh=True)
 
         # Read face labels
         new_label_name = base_name + '_labelsV.txt'

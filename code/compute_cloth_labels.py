@@ -5,7 +5,7 @@ import cv2
 import scipy
 import numpy as np
 
-from obj_loader import *
+import mesh_loader
 
 g_dataset_dir = "trainDome"
 # g_dataset_dir = "/Volumes/ClothesData/20190401_Data_Clothing/20190806_labeled_clothing/Static"
@@ -44,7 +44,7 @@ def read_mesh_from_dir(dir_path):
             try:
                 # Disable error output
                 sys.stderr = None
-                mesh = load_obj_ex(mesh_path, raw_mesh=True)
+                mesh = mesh_loader.load(mesh_path, raw_mesh=True)
                 sys.stderr = sys.__stderr__
 
                 if not isinstance(mesh, trimesh.Trimesh):
