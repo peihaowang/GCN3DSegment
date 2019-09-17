@@ -49,16 +49,17 @@ def adjacency_from_edges(edges, weights, num_edges, num_vertices):
     shape.check_static(tensor=edges, tensor_name='edges', has_rank=3)
     shape.check_static(tensor=weights, tensor_name='weights', has_rank=2)
     shape.check_static(tensor=num_edges, tensor_name='num_edges', has_rank=1)
-    shape.check_static(
-            tensor=num_vertices, tensor_name='num_vertices', has_rank=1)
+    shape.check_static(tensor=num_vertices, tensor_name='num_vertices', has_rank=1)
     shape.compare_dimensions(
-            tensors=(edges, weights, num_edges, num_vertices),
-            tensor_names=('edges', 'weights', 'num_edges', 'num_vertices'),
-            axes=(-3, -2, -1, -1))
+        tensors=(edges, weights, num_edges, num_vertices),
+        tensor_names=('edges', 'weights', 'num_edges', 'num_vertices'),
+        axes=(-3, -2, -1, -1)
+    )
     shape.compare_dimensions(
-            tensors=(edges, weights),
-            tensor_names=('edges', 'weights'),
-            axes=(-2, -1))
+        tensors=(edges, weights),
+        tensor_names=('edges', 'weights'),
+        axes=(-2, -1)
+    )
 
     batch_size = tf.shape(input=edges)[0]
     max_num_vertices = tf.reduce_max(input_tensor=num_vertices)
@@ -68,13 +69,13 @@ def adjacency_from_edges(edges, weights, num_edges, num_vertices):
     batch_edges = tf.concat([batch_col, edges], axis=-1)
 
     indices, _ = conv_utils.flatten_batch_to_2d(batch_edges, sizes=num_edges)
-    values, _ = conv_utils.flatten_batch_to_2d(
-            tf.expand_dims(weights, -1), sizes=num_edges)
+    values, _ = conv_utils.flatten_batch_to_2d(tf.expand_dims(weights, -1), sizes=num_edges)
     values = tf.squeeze(values)
     adjacency = tf.SparseTensor(
-            indices=tf.cast(indices, tf.int64),
-            values=values,
-            dense_shape=[batch_size, max_num_vertices, max_num_vertices])
+        indices=tf.cast(indices, tf.int64),
+        values=values,
+        dense_shape=[batch_size, max_num_vertices, max_num_vertices]
+    )
     adjacency = tf.sparse.reorder(adjacency)
     return adjacency
 
@@ -166,6 +167,11 @@ def _parse_tfex_proto(example_proto):
         , 'vertices': tf.io.FixedLenFeature([], tf.string, default_value='')
         , 'triangles': tf.io.FixedLenFeature([], tf.string, default_value='')
         , 'labels': tf.io.FixedLenFeature([], tf.string, default_value='')
+
+        # Parse metis data as variable-length feature
+        # it will give a sparse tensor each element of
+        # whose is the coarsened correspondence.
+        , 'metis': tf.io.VarLenFeature(tf.string)
     }
     return tf.io.parse_single_example(serialized=example_proto, features=feature_description)
 
@@ -191,6 +197,15 @@ def _parse_mesh_data(mesh_data, mean_center=True):
     labels = tf.io.parse_tensor(mesh_data['labels'], tf.int32)
     vertices = tf.io.parse_tensor(mesh_data['vertices'], tf.float32)
     triangles = tf.io.parse_tensor(mesh_data['triangles'], tf.int32)
+
+    # Convert sparse tensor to iterable dense tensor
+    metis_cpd = tf.sparse.to_dense(mesh_data['metis'])
+    metis_cpd = [tf.io.parse_tensor(m, tf.int32) for m in metis]
+    # Concat tensors to compose the compact tensor to produce padded subsequently
+    num_metis_cpd = tf.convert_to_tensor([m.shape[0] for m in metis_cpd])
+    metis_cpd = tf.concat(metis_cpd, axis=0)
+
+    # Center the mesh
     if mean_center:
         vertices = vertices - tf.reduce_mean(input_tensor=vertices, axis=0, keepdims=True)
 
@@ -212,6 +227,9 @@ def _parse_mesh_data(mesh_data, mean_center=True):
         , num_triangles=num_triangles
         , num_vertices=num_vertices
         , num_edges=num_edges
+
+        , num_metis_correspondences=num_metis_cpd
+        , metis_correspondences=metis_cpd
     )
     return mesh_data
 
@@ -276,6 +294,9 @@ def create_dataset_from_tfrecords(tfrecords, params):
             'num_edges': [],
             'num_vertices': [],
             'num_triangles': [],
+
+            'num_metis_correspondences': [None],
+            'metis_correspondences': [None]
         }
         , drop_remainder=is_training
     )
@@ -305,14 +326,12 @@ def create_input_from_dataset(dataset_fn, files, io_params):
 
     max_num_verts = tf.reduce_max(input_tensor=mesh_data['num_vertices'])
     features = dict(
-            vertices=tf.reshape(mesh_data['vertices'], [-1, max_num_verts, 3]),
-            triangles=mesh_data['triangles'],
-            neighbors=mesh_data['neighbors'],
-            edges=mesh_data['edges'],
-            edge_weights=mesh_data['edge_weights'],
-            num_triangles=mesh_data['num_triangles'],
-            num_vertices=mesh_data['num_vertices'],
-            extra=tf.shape(mesh_data['vertices'])
+        # vertices=tf.reshape(mesh_data['vertices'], [-1, max_num_verts, 3]),
+        vertices=mesh_data['vertices'],
+        triangles=mesh_data['triangles'],
+        neighbors=mesh_data['neighbors'],
+        num_triangles=mesh_data['num_triangles'],
+        num_vertices=mesh_data['num_vertices'],
     )
     labels = mesh_data['labels']
     # Copy labels to features dictionary for estimator prediction mode.

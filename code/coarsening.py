@@ -244,9 +244,6 @@ def compute_perm(parents):
 
     return indices[::-1]
 
-assert (compute_perm([np.array([4,1,1,2,2,3,0,0,3]),np.array([2,1,0,1,0])])
-        == [[3,4,0,9,1,2,5,8,6,7,10,11],[2,4,1,3,0,5],[0,1,2]])
-
 def perm_data(x, indices):
     """
     Permute data matrix, i.e. exchange node ids,
