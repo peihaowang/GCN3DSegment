@@ -374,6 +374,12 @@ def create_input_from_dataset(dataset_fn, files, io_params):
         mesh_data['num_vertices']
     )
 
+    mesh_data['metis_pooling'] = metis_parent_to_perm(
+        mesh_data['metis_parents'],
+        mesh_data['num_metis_parents'],
+        mesh_data['num_vertices']
+    )
+
     max_num_verts = tf.reduce_max(input_tensor=mesh_data['num_vertices'])
     features = dict(
         # vertices=tf.reshape(mesh_data['vertices'], [-1, max_num_verts, 3]),
@@ -382,6 +388,7 @@ def create_input_from_dataset(dataset_fn, files, io_params):
         neighbors=mesh_data['neighbors'],
         num_triangles=mesh_data['num_triangles'],
         num_vertices=mesh_data['num_vertices'],
+        metis_pooling=mesh_data['metis_pooling']
     )
     labels = mesh_data['labels']
     # Copy labels to features dictionary for estimator prediction mode.
