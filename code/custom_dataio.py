@@ -109,6 +109,56 @@ def get_weighted_edges(faces, self_edges=True):
     weights = mesh_utils.get_degree_based_edge_weights(edges, dtype=np.float32)
     return edges, weights
 
+def metis_parent_to_perm(metis_parents, num_metis_parents, num_vertices):
+    shape.compare_dimensions(
+        tensors=(metis_parents, num_metis_parents, num_vertices),
+        tensor_names=('metis_parents', 'num_metis_parents', 'num_vertices'),
+        axes=(-2, -2, -1)
+    )
+
+    batch_size = tf.shape(input=num_metis_parents)[0]
+    layer_size = tf.shape(input=num_metis_parents)[1]
+    max_num_pool = tf.reduce_max(metis_parents) + 1
+    max_num_vertices = tf.reduce_max(num_vertices)
+
+    num_parents_per_batch = tf.reduce_sum(num_metis_parents, axis=1)
+    metis_parents, _ = conv_utils.flatten_batch_to_2d(metis_parents, sizes=num_parents_per_batch)
+    num_metis_parents, _ = conv_utils.flatten_batch_to_2d(num_metis_parents)
+
+    # Directly use metis correspondence as row indices
+    row_indices = metis_parents
+
+    """
+    We first allocate the whole range from 0 to length of flattened metis parents(thus, row indices
+    have the same size with col indices. Then we want to minus a offset to obtain the actual col
+    indices in each layer(i.e. axis 0). We find the offset by cumulatively sum up each length and 
+    repeat them for the corresponding length, so that we can perform subtraction with range and
+    offsets.
+    """
+    slice_lengths = tf.cumsum(num_metis_parents)
+    # Note that, after cumsum, ith offset is actually the (i+1)th offset, so we apply
+    # the following line to re-align the offset.
+    slice_lengths -= num_metis_parents
+    slice_lengths = tf.repeat(slice_lengths, repeats=num_metis_parents)
+    col_indices = tf.range(tf.shape(metis_parents)[0])
+    col_indices -= slice_lengths
+
+    layer_indices = tf.range(layer_size)
+    layer_indices = tf.tile(layer_indices, repeats=batch_size)
+    layer_indices = tf.repeat(layer_indices, repeats=num_metis_parents)
+
+    batch_indices = tf.range(batch_size)
+    batch_indices = tf.repeat(batch_indices, repeats=num_parents_per_batch)
+
+    indices = tf.stack((batch_indices, layer_indices, row_indices, col_indices), axis=1)
+    values = tf.ones(tf.shape(indices)[0], dtype=tf.float32)
+    metis_pooling = tf.SparseTensor(
+        indices=tf.cast(indices, tf.int64),
+        values=values,
+        dense_shape=[batch_size, layer_size, max_num_pool, max_num_vertices]
+    )
+    metis_pooling = tf.sparse.reorder(metis_pooling)
+    return metis_pooling
 
 def _tfrecords_to_dataset(
     tfrecords,
@@ -199,11 +249,11 @@ def _parse_mesh_data(mesh_data, mean_center=True):
     triangles = tf.io.parse_tensor(mesh_data['triangles'], tf.int32)
 
     # Convert sparse tensor to iterable dense tensor
-    metis_cpd = tf.sparse.to_dense(mesh_data['metis'])
-    metis_cpd = [tf.io.parse_tensor(m, tf.int32) for m in metis]
+    metis_parents = tf.sparse.to_dense(mesh_data['metis'])
+    metis_parents = [tf.io.parse_tensor(m, tf.int32) for m in metis]
     # Concat tensors to compose the compact tensor to produce padded subsequently
-    num_metis_cpd = tf.convert_to_tensor([m.shape[0] for m in metis_cpd])
-    metis_cpd = tf.concat(metis_cpd, axis=0)
+    num_metis_parents = tf.convert_to_tensor([tf.shape(m)[0] for m in metis_parents])
+    metis_parents = tf.concat(metis_parents, axis=0)
 
     # Center the mesh
     if mean_center:
@@ -228,8 +278,8 @@ def _parse_mesh_data(mesh_data, mean_center=True):
         , num_vertices=num_vertices
         , num_edges=num_edges
 
-        , num_metis_correspondences=num_metis_cpd
-        , metis_correspondences=metis_cpd
+        , num_metis_parents=num_metis_parents
+        , metis_parents=metis_parents
     )
     return mesh_data
 
@@ -295,8 +345,8 @@ def create_dataset_from_tfrecords(tfrecords, params):
             'num_vertices': [],
             'num_triangles': [],
 
-            'num_metis_correspondences': [None],
-            'metis_correspondences': [None]
+            'num_metis_parents': [None],
+            'metis_parents': [None]
         }
         , drop_remainder=is_training
     )
