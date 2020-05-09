@@ -10,6 +10,8 @@ With this, we can fit a naked human model (via SMPL, etc.) and simulate the clot
 
 In addition to the source code provided here, we also prepared a piece of [slides](https://peihaowang.github.io/archive/Wang_GCN_Segmentation_2019_slides.pdf) for a brief introduction.
 
+![teaser](teaser.png)
+
 ## Code
 
 We provide the code for our experiments under the `code` folder. Before running our code, please make sure these python or jupyter dependencies are well installed and configured.
