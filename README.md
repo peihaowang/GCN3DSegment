@@ -8,6 +8,8 @@ In this work, we adopt GAT and FeaStNet based GCN architecture with task-specifi
 
 With this, we can fit a naked human model (via SMPL, etc.) and simulate the clothes segments separately on the human model. Once we obtain a rough human point cloud by 3D scanning, we can vividly simulate a realist human avatar.
 
+In addition to the source code provided here, we also prepared a piece of [slides](https://peihaowang.github.io/archive/Wang_GCN_Segmentation_2019_slides.pdf) for a brief introduction.
+
 ## Source Code
 
 We provide the code for our experiments under the `code` folder. Before running our code, please make sure these python or jupyter dependencies are well installed and configured.
@@ -47,4 +49,17 @@ To account for the usage of each file, we establish the following list.
 
 * `mesh_visualization.py`: Visualization utilities for 3D data powered by `threevis` library.
 
+Files out of the list above are those you do not need to go through before testing this project. We preserve them only for a reference.
+
+We have tested that our code can run on the public dataset [COSEG](http://irc.cs.sdu.edu.cn/~yunhai/public_html/ssl/ssd.htm). Another working dataset for human-clothes segmentation, however, has not been open yet. If you want to know more about the dataset, please drop me an email.
+
+## Survey
+
+Under the `survey` directory are the related papers we have referred to. Please note that there may exist copyright issues if you intend to download them. Please only refer to the name of these papers and download via other channels of yours.
+
+## Reference
+
+1. Verma, Nitika, Edmond Boyer, and Jakob Verbeek. "FeaStNet: Feature-steered graph convolutions for 3d shape analysis." Proceedings of the IEEE conference on computer vision and pattern recognition. 2018.
+2. Wang, Pengyu, et al. "3D shape segmentation via shape fully convolutional networks." Computers & Graphics 70 (2018): 128-139.
+3. [Introducing TensorFlow Graphics](https://blog.tensorflow.org/2019/05/introducing-tensorflow-graphics_9.html).
 
