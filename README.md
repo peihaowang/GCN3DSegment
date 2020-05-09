@@ -1,4 +1,4 @@
-# GCN Based learning on 3D Data for Segmentation
+# GCN Based Learning on 3D Data for Segmentation
 
 ## Introduction
 
