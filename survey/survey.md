@@ -49,7 +49,7 @@
 
 14. Weidner, Nicholas J., et al. "Eulerian-on-lagrangian cloth simulation." ACM Transactions on Graphics (TOG) 37.4 (2018): 50.
 
-15. Alexandru O Bălan and Michael J Black. The naked truth: Estimating body shape under clothing. In Proceedings of the European Conference on Computer Vision, pages 15–29. Springer, 2008.
+15. Alexandru O Bălan and Michael J Black. The naked truth: Estimating body shape under clothing. In Proceedings of the European Conference on Computer Vision, pages 15–29. Springer, 2008.
 
 16. Li, Jituo, et al. "Fitting 3D garment models onto individual human models." Computers & graphics 34.6 (2010): 742-755.
 
